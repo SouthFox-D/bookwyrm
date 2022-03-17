@@ -1,18 +1,18 @@
 version: '3'
 
 services:
-  nginx:
-    image: nginx:latest
-    ports:
-      - 1333:80
-    depends_on:
-      - web
-    networks:
-      - main
-    volumes:
-      - ./nginx:/etc/nginx/conf.d
-      - static_volume:/app/static
-      - media_volume:/app/images
+  #nginx:
+  #  image: nginx:latest
+  #  ports:
+  #    - 1333:80
+  #  depends_on:
+  #    - web
+  #  networks:
+  #    - main
+  #  volumes:
+  #    - ./nginx:/etc/nginx/conf.d
+  #    - static_volume:/app/static
+  #    - media_volume:/app/images
   db:
     image: postgres
     env_file: .env
