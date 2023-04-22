@@ -4,6 +4,7 @@ from django import forms
 from bookwyrm import models
 from bookwyrm.models.fields import ClearableFileInputWithWarning
 from .custom_form import CustomForm
+from .widgets import ArrayWidget, SelectDateWidget, Select
 
 
 # pylint: disable=missing-class-docstring
@@ -14,30 +15,33 @@ class CoverForm(CustomForm):
         help_texts = {f: None for f in fields}
 
 
-class ArrayWidget(forms.widgets.TextInput):
-    # pylint: disable=unused-argument
-    # pylint: disable=no-self-use
-    def value_from_datadict(self, data, files, name):
-        """get all values for this name"""
-        return [i for i in data.getlist(name) if i]
-
-
 class EditionForm(CustomForm):
     class Meta:
         model = models.Edition
-        exclude = [
-            "remote_id",
-            "origin_id",
-            "created_date",
-            "updated_date",
-            "edition_rank",
-            "authors",
-            "parent_work",
-            "shelves",
-            "connector",
-            "search_vector",
-            "links",
-            "file_links",
+        fields = [
+            "title",
+            "subtitle",
+            "description",
+            "series",
+            "series_number",
+            "languages",
+            "subjects",
+            "publishers",
+            "first_published_date",
+            "published_date",
+            "cover",
+            "physical_format",
+            "physical_format_detail",
+            "pages",
+            "isbn_13",
+            "isbn_10",
+            "openlibrary_key",
+            "inventaire_id",
+            "goodreads_key",
+            "oclc_number",
+            "asin",
+            "aasin",
+            "isfdb",
         ]
         widgets = {
             "title": forms.TextInput(attrs={"aria-describedby": "desc_title"}),
@@ -56,16 +60,16 @@ class EditionForm(CustomForm):
             "publishers": forms.TextInput(
                 attrs={"aria-describedby": "desc_publishers_help desc_publishers"}
             ),
-            "first_published_date": forms.SelectDateWidget(
+            "first_published_date": SelectDateWidget(
                 attrs={"aria-describedby": "desc_first_published_date"}
             ),
-            "published_date": forms.SelectDateWidget(
+            "published_date": SelectDateWidget(
                 attrs={"aria-describedby": "desc_published_date"}
             ),
             "cover": ClearableFileInputWithWarning(
                 attrs={"aria-describedby": "desc_cover"}
             ),
-            "physical_format": forms.Select(
+            "physical_format": Select(
                 attrs={"aria-describedby": "desc_physical_format"}
             ),
             "physical_format_detail": forms.TextInput(
@@ -80,8 +84,37 @@ class EditionForm(CustomForm):
             "inventaire_id": forms.TextInput(
                 attrs={"aria-describedby": "desc_inventaire_id"}
             ),
+            "goodreads_key": forms.TextInput(
+                attrs={"aria-describedby": "desc_goodreads_key"}
+            ),
             "oclc_number": forms.TextInput(
                 attrs={"aria-describedby": "desc_oclc_number"}
             ),
             "ASIN": forms.TextInput(attrs={"aria-describedby": "desc_ASIN"}),
+            "AASIN": forms.TextInput(attrs={"aria-describedby": "desc_AASIN"}),
+            "isfdb": forms.TextInput(attrs={"aria-describedby": "desc_isfdb"}),
         }
+
+
+class EditionFromWorkForm(CustomForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # make all fields hidden
+        for visible in self.visible_fields():
+            visible.field.widget = forms.HiddenInput()
+
+    class Meta:
+        model = models.Work
+        fields = [
+            "title",
+            "subtitle",
+            "authors",
+            "description",
+            "languages",
+            "series",
+            "series_number",
+            "subjects",
+            "subject_places",
+            "cover",
+            "first_published_date",
+        ]

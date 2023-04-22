@@ -8,6 +8,7 @@ from dateutil.parser import ParserError
 from requests import HTTPError
 from django.db.models import Q
 from django.conf import settings as django_settings
+from django.shortcuts import redirect
 from django.http import Http404
 from django.utils import translation
 
@@ -15,6 +16,7 @@ from bookwyrm import activitypub, models, settings
 from bookwyrm.connectors import ConnectorException, get_data
 from bookwyrm.status import create_generated_note
 from bookwyrm.utils import regex
+from bookwyrm.utils.validate import validate_url_domain
 
 
 # pylint: disable=unnecessary-pass
@@ -58,7 +60,7 @@ def is_bookwyrm_request(request):
     return True
 
 
-def handle_remote_webfinger(query):
+def handle_remote_webfinger(query, unknown_only=False):
     """webfingerin' other servers"""
     user = None
 
@@ -74,6 +76,11 @@ def handle_remote_webfinger(query):
 
     try:
         user = models.User.objects.get(username__iexact=query)
+
+        if unknown_only:
+            # In this case, we only want to know about previously undiscovered users
+            # So the fact that we found a match in the database means no results
+            return None
     except models.User.DoesNotExist:
         url = f"https://{domain}/.well-known/webfinger?resource=acct:{query}"
         try:
@@ -137,6 +144,7 @@ def handle_reading_status(user, shelf, book, privacy):
             "to-read": "wants to read",
             "reading": "started reading",
             "read": "finished reading",
+            "stopped-reading": "stopped reading",
         }[shelf.identifier]
     except KeyError:
         # it's a non-standard shelf, don't worry about it
@@ -144,13 +152,6 @@ def handle_reading_status(user, shelf, book, privacy):
 
     status = create_generated_note(user, message, mention_books=[book], privacy=privacy)
     status.save()
-
-
-def is_blocked(viewer, user):
-    """is this viewer blocked by the user?"""
-    if viewer.is_authenticated and viewer in user.blocks.all():
-        return True
-    return False
 
 
 def load_date_in_user_tz_as_utc(date_str: str, user: models.User) -> datetime:
@@ -201,3 +202,33 @@ def filter_stream_by_status_type(activities, allowed_types=None):
         )
 
     return activities
+
+
+def maybe_redirect_local_path(request, model):
+    """
+    if the request had an invalid path, return a permanent redirect response to the
+    correct one, including a slug if any.
+    if path is valid, returns False.
+    """
+
+    # don't redirect empty path for unit tests which currently have this
+    if request.path in ("/", model.local_path):
+        return False
+
+    new_path = model.local_path
+    if len(request.GET) > 0:
+        new_path = f"{model.local_path}?{request.GET.urlencode()}"
+
+    return redirect(new_path, permanent=True)
+
+
+def redirect_to_referer(request, *args):
+    """Redirect to the referrer, if it's in our domain, with get params"""
+    # make sure the refer is part of this instance
+    validated = validate_url_domain(request.META.get("HTTP_REFERER"))
+
+    if validated:
+        return redirect(validated)
+
+    # if not, use the args passed you'd normally pass to redirect()
+    return redirect(*args or "/")

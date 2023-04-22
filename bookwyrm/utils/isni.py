@@ -85,6 +85,9 @@ def find_authors_by_name(name_string, description=False):
     # build list of possible authors
     possible_authors = []
     for element in root.iter("responseRecord"):
+
+        # TODO: we don't seem to do anything with the
+        # personal_name variable - is this code block needed?
         personal_name = element.find(".//forename/..")
         if not personal_name:
             continue
@@ -106,7 +109,7 @@ def find_authors_by_name(name_string, description=False):
 
             if titles:
                 # some of the "titles" in ISNI are a little ...iffy
-                # '@' is used by ISNI/OCLC to index the starting point ignoring stop words
+                # @ is used by ISNI/OCLC to index the starting point ignoring stop words
                 # (e.g. "The @Government of no one")
                 title_elements = [
                     e

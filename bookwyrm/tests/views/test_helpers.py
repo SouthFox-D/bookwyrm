@@ -8,7 +8,7 @@ from django.test.client import RequestFactory
 import responses
 
 from bookwyrm import models, views
-from bookwyrm.settings import USER_AGENT
+from bookwyrm.settings import USER_AGENT, DOMAIN
 
 
 @patch("bookwyrm.activitystreams.add_status_task.delay")
@@ -18,6 +18,7 @@ from bookwyrm.settings import USER_AGENT
 class ViewsHelpers(TestCase):
     """viewing and creating statuses"""
 
+    # pylint: disable=invalid-name
     def setUp(self):
         """we need basic test data and mocks"""
         self.factory = RequestFactory()
@@ -112,7 +113,17 @@ class ViewsHelpers(TestCase):
         request = self.factory.get("", {"q": "Test Book"}, HTTP_USER_AGENT=USER_AGENT)
         self.assertTrue(views.helpers.is_bookwyrm_request(request))
 
-    def test_existing_user(self, *_):
+    def test_handle_remote_webfinger_invalid(self, *_):
+        """Various ways you can send a bad query"""
+        # if there's no query, there's no result
+        result = views.helpers.handle_remote_webfinger(None)
+        self.assertIsNone(result)
+
+        # malformed user
+        result = views.helpers.handle_remote_webfinger("noatsymbol")
+        self.assertIsNone(result)
+
+    def test_handle_remote_webfinger_existing_user(self, *_):
         """simple database lookup by username"""
         result = views.helpers.handle_remote_webfinger("@mouse@local.com")
         self.assertEqual(result, self.local_user)
@@ -124,7 +135,19 @@ class ViewsHelpers(TestCase):
         self.assertEqual(result, self.local_user)
 
     @responses.activate
-    def test_load_user(self, *_):
+    def test_handle_remote_webfinger_load_user_invalid_result(self, *_):
+        """find a remote user using webfinger, but fail"""
+        username = "mouse@example.com"
+        responses.add(
+            responses.GET,
+            f"https://example.com/.well-known/webfinger?resource=acct:{username}",
+            status=500,
+        )
+        result = views.helpers.handle_remote_webfinger("@mouse@example.com")
+        self.assertIsNone(result)
+
+    @responses.activate
+    def test_handle_remote_webfinger_load_user(self, *_):
         """find a remote user using webfinger"""
         username = "mouse@example.com"
         wellknown = {
@@ -139,7 +162,7 @@ class ViewsHelpers(TestCase):
         }
         responses.add(
             responses.GET,
-            "https://example.com/.well-known/webfinger?resource=acct:%s" % username,
+            f"https://example.com/.well-known/webfinger?resource=acct:{username}",
             json=wellknown,
             status=200,
         )
@@ -154,7 +177,7 @@ class ViewsHelpers(TestCase):
             self.assertIsInstance(result, models.User)
             self.assertEqual(result.username, "mouse@example.com")
 
-    def test_user_on_blocked_server(self, *_):
+    def test_handler_remote_webfinger_user_on_blocked_server(self, *_):
         """find a remote user using webfinger"""
         models.FederatedServer.objects.create(
             server_name="example.com", status="blocked"
@@ -162,6 +185,38 @@ class ViewsHelpers(TestCase):
 
         result = views.helpers.handle_remote_webfinger("@mouse@example.com")
         self.assertIsNone(result)
+
+    @responses.activate
+    def test_subscribe_remote_webfinger(self, *_):
+        """remote subscribe templates"""
+        query = "mouse@example.com"
+        response = {
+            "subject": f"acct:{query}",
+            "links": [
+                {
+                    "rel": "self",
+                    "type": "application/activity+json",
+                    "href": "https://example.com/user/mouse",
+                    "template": "hi",
+                },
+                {
+                    "rel": "http://ostatus.org/schema/1.0/subscribe",
+                    "type": "application/activity+json",
+                    "href": "https://example.com/user/mouse",
+                    "template": "hello",
+                },
+            ],
+        }
+        responses.add(
+            responses.GET,
+            f"https://example.com/.well-known/webfinger?resource=acct:{query}",
+            json=response,
+            status=200,
+        )
+        template = views.helpers.subscribe_remote_webfinger(query)
+        self.assertEqual(template, "hello")
+        template = views.helpers.subscribe_remote_webfinger(f"@{query}")
+        self.assertEqual(template, "hello")
 
     def test_handle_reading_status_to_read(self, *_):
         """posts shelve activities"""
@@ -206,3 +261,33 @@ class ViewsHelpers(TestCase):
                 self.local_user, self.shelf, self.book, "public"
             )
         self.assertFalse(models.GeneratedNote.objects.exists())
+
+    def test_redirect_to_referer_outside_domain(self, *_):
+        """safely send people on their way"""
+        request = self.factory.get("/path")
+        request.META = {"HTTP_REFERER": "http://outside.domain/name"}
+        result = views.helpers.redirect_to_referer(
+            request, "user-feed", self.local_user.localname
+        )
+        self.assertEqual(result.url, f"/user/{self.local_user.localname}")
+
+    def test_redirect_to_referer_outside_domain_with_fallback(self, *_):
+        """invalid domain with regular params for the redirect function"""
+        request = self.factory.get("/path")
+        request.META = {"HTTP_REFERER": "https://outside.domain/name"}
+        result = views.helpers.redirect_to_referer(request)
+        self.assertEqual(result.url, "/")
+
+    def test_redirect_to_referer_valid_domain(self, *_):
+        """redirect to within the app"""
+        request = self.factory.get("/path")
+        request.META = {"HTTP_REFERER": f"https://{DOMAIN}/and/a/path"}
+        result = views.helpers.redirect_to_referer(request)
+        self.assertEqual(result.url, f"https://{DOMAIN}/and/a/path")
+
+    def test_redirect_to_referer_with_get_args(self, *_):
+        """if the path has get params (like sort) they are preserved"""
+        request = self.factory.get("/path")
+        request.META = {"HTTP_REFERER": f"https://{DOMAIN}/and/a/path?sort=hello"}
+        result = views.helpers.redirect_to_referer(request)
+        self.assertEqual(result.url, f"https://{DOMAIN}/and/a/path?sort=hello")

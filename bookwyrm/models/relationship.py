@@ -1,10 +1,10 @@
 """ defines relationships between users """
-from django.apps import apps
 from django.core.cache import cache
 from django.db import models, transaction, IntegrityError
 from django.db.models import Q
 
 from bookwyrm import activitypub
+from bookwyrm.tasks import HIGH
 from .activitypub_mixin import ActivitypubMixin, ActivityMixin
 from .activitypub_mixin import generate_activity
 from .base_model import BookWyrmModel
@@ -39,14 +39,13 @@ class UserRelationship(BookWyrmModel):
 
     def save(self, *args, **kwargs):
         """clear the template cache"""
-        # invalidate the template cache
-        cache.delete_many(
-            [
-                f"relationship-{self.user_subject.id}-{self.user_object.id}",
-                f"relationship-{self.user_object.id}-{self.user_subject.id}",
-            ]
-        )
+        clear_cache(self.user_subject, self.user_object)
         super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        """clear the template cache"""
+        clear_cache(self.user_subject, self.user_object)
+        super().delete(*args, **kwargs)
 
     class Meta:
         """relationships should be unique"""
@@ -90,7 +89,9 @@ class UserFollows(ActivityMixin, UserRelationship):
                 user_object=self.user_subject,
             )
         ).exists():
-            raise IntegrityError()
+            raise IntegrityError(
+                "Attempting to follow blocked user", self.user_subject, self.user_object
+            )
         # don't broadcast this type of relationship -- accepts and requests
         # are handled by the UserFollowRequest model
         super().save(*args, broadcast=False, **kwargs)
@@ -98,11 +99,12 @@ class UserFollows(ActivityMixin, UserRelationship):
     @classmethod
     def from_request(cls, follow_request):
         """converts a follow request into a follow relationship"""
-        return cls.objects.create(
+        obj, _ = cls.objects.get_or_create(
             user_subject=follow_request.user_subject,
             user_object=follow_request.user_object,
             remote_id=follow_request.remote_id,
         )
+        return obj
 
 
 class UserFollowRequest(ActivitypubMixin, UserRelationship):
@@ -133,24 +135,19 @@ class UserFollowRequest(ActivitypubMixin, UserRelationship):
                 user_object=self.user_subject,
             )
         ).exists():
-            raise IntegrityError()
+            raise IntegrityError(
+                "Attempting to follow blocked user", self.user_subject, self.user_object
+            )
         super().save(*args, **kwargs)
 
+        # a local user is following a remote user
         if broadcast and self.user_subject.local and not self.user_object.local:
-            self.broadcast(self.to_activity(), self.user_subject)
+            self.broadcast(self.to_activity(), self.user_subject, queue=HIGH)
 
         if self.user_object.local:
             manually_approves = self.user_object.manually_approves_followers
             if not manually_approves:
                 self.accept()
-
-            model = apps.get_model("bookwyrm.Notification", require_ready=True)
-            notification_type = "FOLLOW_REQUEST" if manually_approves else "FOLLOW"
-            model.objects.create(
-                user=self.user_object,
-                related_user=self.user_subject,
-                notification_type=notification_type,
-            )
 
     def get_accept_reject_id(self, status):
         """get id for sending an accept or reject of a local user"""
@@ -162,19 +159,25 @@ class UserFollowRequest(ActivitypubMixin, UserRelationship):
     def accept(self, broadcast_only=False):
         """turn this request into the real deal"""
         user = self.user_object
+        # broadcast when accepting a remote request
         if not self.user_subject.local:
             activity = activitypub.Accept(
                 id=self.get_accept_reject_id(status="accepts"),
                 actor=self.user_object.remote_id,
                 object=self.to_activity(),
             ).serialize()
-            self.broadcast(activity, user)
+            self.broadcast(activity, user, queue=HIGH)
         if broadcast_only:
             return
 
         with transaction.atomic():
-            UserFollows.from_request(self)
-            self.delete()
+            try:
+                UserFollows.from_request(self)
+            except IntegrityError:
+                # this just means we already saved this relationship
+                pass
+            if self.id:
+                self.delete()
 
     def reject(self):
         """generate a Reject for this follow request"""
@@ -184,7 +187,7 @@ class UserFollowRequest(ActivitypubMixin, UserRelationship):
                 actor=self.user_object.remote_id,
                 object=self.to_activity(),
             ).serialize()
-            self.broadcast(activity, self.user_object)
+            self.broadcast(activity, self.user_object, queue=HIGH)
 
         self.delete()
 
@@ -207,3 +210,13 @@ class UserBlocks(ActivityMixin, UserRelationship):
             Q(user_subject=self.user_subject, user_object=self.user_object)
             | Q(user_subject=self.user_object, user_object=self.user_subject)
         ).delete()
+
+
+def clear_cache(user_subject, user_object):
+    """clear relationship cache"""
+    cache.delete_many(
+        [
+            f"cached-relationship-{user_subject.id}-{user_object.id}",
+            f"cached-relationship-{user_object.id}-{user_subject.id}",
+        ]
+    )

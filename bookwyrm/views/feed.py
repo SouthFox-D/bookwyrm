@@ -15,7 +15,7 @@ from bookwyrm.activitypub import ActivitypubResponse
 from bookwyrm.settings import PAGE_LENGTH, STREAMS
 from bookwyrm.suggested_users import suggested_users
 from .helpers import filter_stream_by_status_type, get_user_from_username
-from .helpers import is_api_request, is_bookwyrm_request
+from .helpers import is_api_request, is_bookwyrm_request, maybe_redirect_local_path
 from .annual_summary import get_annual_summary_year
 
 
@@ -30,7 +30,7 @@ class Feed(View):
         form = forms.FeedStatusTypesForm(request.POST, instance=request.user)
         if form.is_valid():
             # workaround to avoid broadcasting this change
-            user = form.save(commit=False)
+            user = form.save(request, commit=False)
             user.save(broadcast=False, update_fields=["feed_status_types"])
             filters_applied = True
 
@@ -65,6 +65,7 @@ class Feed(View):
                 "filters_applied": filters_applied,
                 "path": f"/{tab['key']}",
                 "annual_summary_year": get_annual_summary_year(),
+                "has_tour": True,
             },
         }
         return TemplateResponse(request, "feed/feed.html", data)
@@ -113,7 +114,8 @@ class DirectMessage(View):
 class Status(View):
     """get posting"""
 
-    def get(self, request, username, status_id):
+    # pylint: disable=unused-argument
+    def get(self, request, username, status_id, slug=None):
         """display a particular status (and replies, etc)"""
         user = get_user_from_username(request.user, username)
         status = get_object_or_404(
@@ -129,6 +131,9 @@ class Status(View):
             return ActivitypubResponse(
                 status.to_activity(pure=not is_bookwyrm_request(request))
             )
+
+        if redirect_local_path := maybe_redirect_local_path(request, status):
+            return redirect_local_path
 
         visible_thread = (
             models.Status.privacy_filter(request.user)
@@ -232,16 +237,24 @@ def feed_page_data(user):
 def get_suggested_books(user, max_books=5):
     """helper to get a user's recent books"""
     book_count = 0
-    preset_shelves = [("reading", max_books), ("read", 2), ("to-read", max_books)]
+    preset_shelves = {"reading": max_books, "read": 2, "to-read": max_books}
     suggested_books = []
-    for (preset, shelf_max) in preset_shelves:
+
+    user_shelves = {
+        shelf.identifier: shelf
+        for shelf in user.shelf_set.filter(
+            identifier__in=preset_shelves.keys()
+        ).exclude(books__isnull=True)
+    }
+
+    for preset, shelf_max in preset_shelves.items():
         limit = (
             shelf_max
             if shelf_max < (max_books - book_count)
             else max_books - book_count
         )
-        shelf = user.shelf_set.get(identifier=preset)
-        if not shelf.books.exists():
+        shelf = user_shelves.get(preset, None)
+        if not shelf:
             continue
 
         shelf_preview = {

@@ -6,6 +6,8 @@ from django.db import models
 from django.utils import timezone
 
 from bookwyrm import activitypub
+from bookwyrm.settings import DOMAIN
+from bookwyrm.tasks import LOW
 from .activitypub_mixin import CollectionItemMixin, OrderedCollectionMixin
 from .base_model import BookWyrmModel
 from . import fields
@@ -17,8 +19,9 @@ class Shelf(OrderedCollectionMixin, BookWyrmModel):
     TO_READ = "to-read"
     READING = "reading"
     READ_FINISHED = "read"
+    STOPPED_READING = "stopped-reading"
 
-    READ_STATUS_IDENTIFIERS = (TO_READ, READING, READ_FINISHED)
+    READ_STATUS_IDENTIFIERS = (TO_READ, READING, READ_FINISHED, STOPPED_READING)
 
     name = fields.CharField(max_length=100)
     identifier = models.CharField(max_length=100)
@@ -37,9 +40,9 @@ class Shelf(OrderedCollectionMixin, BookWyrmModel):
 
     activity_serializer = activitypub.Shelf
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, priority=LOW, **kwargs):
         """set the identifier"""
-        super().save(*args, **kwargs)
+        super().save(*args, priority=priority, **kwargs)
         if not self.identifier:
             self.identifier = self.get_identifier()
             super().save(*args, **kwargs, broadcast=False)
@@ -64,6 +67,11 @@ class Shelf(OrderedCollectionMixin, BookWyrmModel):
         base_path = self.user.remote_id
         identifier = self.identifier or self.get_identifier()
         return f"{base_path}/books/{identifier}"
+
+    @property
+    def local_path(self):
+        """No slugs"""
+        return self.get_remote_id().replace(f"https://{DOMAIN}", "")
 
     def raise_not_deletable(self, viewer):
         """don't let anyone delete a default shelf"""
@@ -92,16 +100,29 @@ class ShelfBook(CollectionItemMixin, BookWyrmModel):
     activity_serializer = activitypub.ShelfItem
     collection_field = "shelf"
 
-    def save(self, *args, **kwargs):
+    def save(self, *args, priority=LOW, **kwargs):
         if not self.user:
             self.user = self.shelf.user
         if self.id and self.user.local:
-            cache.delete(f"book-on-shelf-{self.book.id}-{self.shelf.id}")
-        super().save(*args, **kwargs)
+            # remove all caches related to all editions of this book
+            cache.delete_many(
+                [
+                    f"book-on-shelf-{book.id}-{self.shelf_id}"
+                    for book in self.book.parent_work.editions.all()
+                ]
+            )
+        super().save(*args, priority=priority, **kwargs)
 
     def delete(self, *args, **kwargs):
         if self.id and self.user.local:
-            cache.delete(f"book-on-shelf-{self.book.id}-{self.shelf.id}")
+            cache.delete_many(
+                [
+                    f"book-on-shelf-{book}-{self.shelf_id}"
+                    for book in self.book.parent_work.editions.values_list(
+                        "id", flat=True
+                    )
+                ]
+            )
         super().delete(*args, **kwargs)
 
     class Meta:

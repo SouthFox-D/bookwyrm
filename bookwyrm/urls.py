@@ -71,7 +71,7 @@ urlpatterns = [
         views.ConfirmEmailCode.as_view(),
         name="confirm-email-code",
     ),
-    re_path(r"^resend-link/?$", views.resend_link, name="resend-link"),
+    re_path(r"^resend-link/?$", views.ResendConfirmEmail.as_view(), name="resend-link"),
     re_path(r"^logout/?$", views.Logout.as_view(), name="logout"),
     re_path(
         r"^password-reset/?$",
@@ -86,6 +86,16 @@ urlpatterns = [
         r"^settings/dashboard/?$", views.Dashboard.as_view(), name="settings-dashboard"
     ),
     re_path(r"^settings/site-settings/?$", views.Site.as_view(), name="settings-site"),
+    re_path(
+        r"^settings/site-registration/?$",
+        views.RegistrationLimited.as_view(),
+        name="settings-registration-limited",
+    ),
+    re_path(
+        r"^settings/site-registration-admin/?$",
+        views.Registration.as_view(),
+        name="settings-registration",
+    ),
     re_path(r"^settings/themes/?$", views.Themes.as_view(), name="settings-themes"),
     re_path(
         r"^settings/themes/(?P<theme_id>\d+)/delete/?$",
@@ -119,14 +129,14 @@ urlpatterns = [
     ),
     re_path(
         r"^settings/email-preview/?$",
-        views.admin.site.email_preview,
+        views.admin.email_config.email_preview,
         name="settings-email-preview",
     ),
     re_path(
         r"^settings/users/?$", views.UserAdminList.as_view(), name="settings-users"
     ),
     re_path(
-        r"^settings/users/(?P<status>(local|federated))\/?$",
+        r"^settings/users/(?P<status>(local|federated|deleted))\/?$",
         views.UserAdminList.as_view(),
         name="settings-users",
     ),
@@ -134,6 +144,11 @@ urlpatterns = [
         r"^settings/users/(?P<user>\d+)/?$",
         views.UserAdmin.as_view(),
         name="settings-user",
+    ),
+    re_path(
+        r"^settings/users/(?P<user>\d+)/activate/?$",
+        views.ActivateUserAdmin.as_view(),
+        name="settings-activate-user",
     ),
     re_path(
         r"^settings/federation/(?P<status>(federated|blocked))?/?$",
@@ -287,14 +302,51 @@ urlpatterns = [
         name="report-status",
     ),
     re_path(
-        r"^report/(?P<user_id>\d+)/link/(?P<link_id>\d+)?$",
+        r"^report/link/(?P<link_id>\d+)?$",
         views.Report.as_view(),
         name="report-link",
+    ),
+    re_path(
+        r"^settings/imports/(?P<status>(complete|active))?/?$",
+        views.ImportList.as_view(),
+        name="settings-imports",
+    ),
+    re_path(
+        r"^settings/imports/(?P<import_id>\d+)/complete/?$",
+        views.ImportList.as_view(),
+        name="settings-imports-complete",
+    ),
+    re_path(
+        r"^settings/imports/disable/?$",
+        views.disable_imports,
+        name="settings-imports-disable",
+    ),
+    re_path(
+        r"^settings/imports/enable/?$",
+        views.enable_imports,
+        name="settings-imports-enable",
+    ),
+    re_path(
+        r"^settings/imports/set-limit/?$",
+        views.set_import_size_limit,
+        name="settings-imports-set-limit",
+    ),
+    re_path(
+        r"^settings/celery/?$", views.CeleryStatus.as_view(), name="settings-celery"
+    ),
+    re_path(
+        r"^settings/celery/ping/?$", views.celery_ping, name="settings-celery-ping"
+    ),
+    re_path(
+        r"^settings/email-config/?$",
+        views.EmailConfig.as_view(),
+        name="settings-email-config",
     ),
     # landing pages
     re_path(r"^about/?$", views.about, name="about"),
     re_path(r"^privacy/?$", views.privacy, name="privacy"),
     re_path(r"^conduct/?$", views.conduct, name="conduct"),
+    re_path(r"^impressum/?$", views.impressum, name="impressum"),
     path("", views.Home.as_view(), name="landing"),
     re_path(r"^discover/?$", views.Discover.as_view(), name="discover"),
     re_path(r"^notifications/?$", views.Notifications.as_view(), name="notifications"),
@@ -304,6 +356,15 @@ urlpatterns = [
         name="notifications",
     ),
     re_path(r"^directory/?", views.Directory.as_view(), name="directory"),
+    # hashtag
+    re_path(
+        r"^hashtag/(?P<hashtag_id>\d+)/?$", views.Hashtag.as_view(), name="hashtag"
+    ),
+    re_path(
+        rf"^hashtag/(?P<hashtag_id>\d+){regex.SLUG}/?$",
+        views.Hashtag.as_view(),
+        name="hashtag",
+    ),
     # Get started
     re_path(
         r"^get-started/profile/?$",
@@ -341,6 +402,11 @@ urlpatterns = [
         name="import-status",
     ),
     re_path(
+        r"^import/(?P<job_id>\d+)/stop/?$",
+        views.stop_import,
+        name="import-stop",
+    ),
+    re_path(
         r"^import/(?P<job_id>\d+)/retry/(?P<item_id>\d+)/?$",
         views.retry_item,
         name="import-item-retry",
@@ -376,20 +442,38 @@ urlpatterns = [
     re_path(rf"^@(?P<username>{regex.USERNAME})$", views.user_redirect),
     re_path(rf"{USER_PATH}/rss/?$", views.rss_feed.RssFeed(), name="user-rss"),
     re_path(
-        rf"{USER_PATH}/followers(.json)?/?$",
-        views.Followers.as_view(),
-        name="user-followers",
+        rf"{USER_PATH}/rss-reviews/?$",
+        views.rss_feed.RssReviewsOnlyFeed(),
+        name="user-reviews-rss",
     ),
     re_path(
-        rf"{USER_PATH}/following(.json)?/?$",
-        views.Following.as_view(),
-        name="user-following",
+        rf"{USER_PATH}/rss-quotes/?$",
+        views.rss_feed.RssQuotesOnlyFeed(),
+        name="user-quotes-rss",
+    ),
+    re_path(
+        rf"{USER_PATH}/rss-comments/?$",
+        views.rss_feed.RssCommentsOnlyFeed(),
+        name="user-comments-rss",
+    ),
+    re_path(
+        rf"{USER_PATH}/(?P<direction>(followers|following))(.json)?/?$",
+        views.Relationships.as_view(),
+        name="user-relationships",
     ),
     re_path(r"^hide-suggestions/?$", views.hide_suggestions, name="hide-suggestions"),
+    re_path(
+        rf"{USER_PATH}/reviews-comments",
+        views.UserReviewsComments.as_view(),
+        name="user-reviews-comments",
+    ),
     # groups
     re_path(rf"{USER_PATH}/groups/?$", views.UserGroups.as_view(), name="user-groups"),
     re_path(
         r"^group/(?P<group_id>\d+)(.json)?/?$", views.Group.as_view(), name="group"
+    ),
+    re_path(
+        rf"^group/(?P<group_id>\d+){regex.SLUG}/?$", views.Group.as_view(), name="group"
     ),
     re_path(
         r"^group/delete/(?P<group_id>\d+)/?$", views.delete_group, name="delete-group"
@@ -417,7 +501,10 @@ urlpatterns = [
     re_path(rf"{USER_PATH}/lists/?$", views.UserLists.as_view(), name="user-lists"),
     re_path(r"^list/?$", views.Lists.as_view(), name="lists"),
     re_path(r"^list/saved/?$", views.SavedLists.as_view(), name="saved-lists"),
-    re_path(r"^list/(?P<list_id>\d+)(.json)?/?$", views.List.as_view(), name="list"),
+    re_path(r"^list/(?P<list_id>\d+)(\.json)?/?$", views.List.as_view(), name="list"),
+    re_path(
+        rf"^list/(?P<list_id>\d+){regex.SLUG}/?$", views.List.as_view(), name="list"
+    ),
     re_path(
         r"^list/(?P<list_id>\d+)/item/(?P<list_item>\d+)/?$",
         views.ListItem.as_view(),
@@ -475,12 +562,54 @@ urlpatterns = [
         views.ChangePassword.as_view(),
         name="prefs-password",
     ),
+    re_path(
+        r"^preferences/2fa/?$",
+        views.Edit2FA.as_view(),
+        name="prefs-2fa",
+    ),
+    re_path(
+        r"^preferences/2fa-backup-codes/?$",
+        views.GenerateBackupCodes.as_view(),
+        name="generate-2fa-backup-codes",
+    ),
+    re_path(
+        r"^preferences/confirm-2fa/?$",
+        views.Confirm2FA.as_view(),
+        name="conf-2fa",
+    ),
+    re_path(
+        r"^preferences/disable-2fa/?$",
+        views.Disable2FA.as_view(),
+        name="disable-2fa",
+    ),
+    re_path(
+        r"^2fa-check/?$",
+        views.LoginWith2FA.as_view(),
+        name="login-with-2fa",
+    ),
+    re_path(
+        r"^2fa-prompt/?$",
+        views.Prompt2FA.as_view(),
+        name="prompt-2fa",
+    ),
+    re_path(r"^preferences/export/?$", views.Export.as_view(), name="prefs-export"),
     re_path(r"^preferences/delete/?$", views.DeleteUser.as_view(), name="prefs-delete"),
+    re_path(
+        r"^preferences/deactivate/?$",
+        views.DeactivateUser.as_view(),
+        name="prefs-deactivate",
+    ),
+    re_path(
+        r"^preferences/reactivate/?$",
+        views.ReactivateUser.as_view(),
+        name="prefs-reactivate",
+    ),
     re_path(r"^preferences/block/?$", views.Block.as_view(), name="prefs-block"),
     re_path(r"^block/(?P<user_id>\d+)/?$", views.Block.as_view()),
     re_path(r"^unblock/(?P<user_id>\d+)/?$", views.unblock),
     # statuses
     re_path(rf"{STATUS_PATH}(.json)?/?$", views.Status.as_view(), name="status"),
+    re_path(rf"{STATUS_PATH}{regex.SLUG}/?$", views.Status.as_view(), name="status"),
     re_path(rf"{STATUS_PATH}/activity/?$", views.Status.as_view(), name="status"),
     re_path(
         rf"{STATUS_PATH}/replies(.json)?/?$", views.Replies.as_view(), name="replies"
@@ -517,15 +646,32 @@ urlpatterns = [
     re_path(r"^unboost/(?P<status_id>\d+)/?$", views.Unboost.as_view()),
     # books
     re_path(rf"{BOOK_PATH}(.json)?/?$", views.Book.as_view(), name="book"),
+    re_path(rf"{BOOK_PATH}{regex.SLUG}/?$", views.Book.as_view(), name="book"),
+    re_path(
+        r"^series/by/(?P<author_id>\d+)/?$",
+        views.BookSeriesBy.as_view(),
+        name="book-series-by",
+    ),
     re_path(
         rf"{BOOK_PATH}/(?P<user_statuses>review|comment|quote)/?$",
         views.Book.as_view(),
         name="book-user-statuses",
     ),
     re_path(rf"{BOOK_PATH}/edit/?$", views.EditBook.as_view(), name="edit-book"),
-    re_path(rf"{BOOK_PATH}/confirm/?$", views.ConfirmEditBook.as_view()),
-    re_path(r"^create-book/?$", views.EditBook.as_view(), name="create-book"),
-    re_path(r"^create-book/confirm/?$", views.ConfirmEditBook.as_view()),
+    re_path(
+        rf"{BOOK_PATH}/confirm/?$",
+        views.ConfirmEditBook.as_view(),
+        name="edit-book-confirm",
+    ),
+    re_path(
+        r"^create-book/data/?$", views.create_book_from_data, name="create-book-data"
+    ),
+    re_path(r"^create-book/?$", views.CreateBook.as_view(), name="create-book"),
+    re_path(
+        r"^create-book/confirm/?$",
+        views.ConfirmEditBook.as_view(),
+        name="create-book-confirm",
+    ),
     re_path(rf"{BOOK_PATH}/editions(.json)?/?$", views.Editions.as_view()),
     re_path(
         r"^upload-cover/(?P<book_id>\d+)/?$", views.upload_cover, name="upload-cover"
@@ -566,10 +712,15 @@ urlpatterns = [
         name="author-update-remote",
     ),
     # isbn
-    re_path(r"^isbn/(?P<isbn>\d+)(.json)?/?$", views.Isbn.as_view()),
+    re_path(r"^isbn/(?P<isbn>[\dxX]+)(.json)?/?$", views.Isbn.as_view()),
     # author
     re_path(
         r"^author/(?P<author_id>\d+)(.json)?/?$", views.Author.as_view(), name="author"
+    ),
+    re_path(
+        rf"^author/(?P<author_id>\d+){regex.SLUG}/?$",
+        views.Author.as_view(),
+        name="author",
     ),
     re_path(
         r"^author/(?P<author_id>\d+)/edit/?$",
@@ -592,7 +743,7 @@ urlpatterns = [
         name="reading-status-update",
     ),
     re_path(
-        r"^reading-status/(?P<status>want|start|finish)/(?P<book_id>\d+)/?$",
+        r"^reading-status/(?P<status>want|start|finish|stop)/(?P<book_id>\d+)/?$",
         views.ReadingStatus.as_view(),
         name="reading-status",
     ),
@@ -620,4 +771,8 @@ urlpatterns = [
     re_path(
         r"^summary_revoke_key/?$", views.summary_revoke_key, name="summary-revoke-key"
     ),
+    path("guided-tour/<tour>", views.toggle_guided_tour),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+
+# pylint: disable=invalid-name
+handler500 = "bookwyrm.views.server_error"

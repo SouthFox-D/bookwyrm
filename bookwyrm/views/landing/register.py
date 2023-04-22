@@ -1,11 +1,11 @@
 """ class views for login/register views """
+import pytz
 from django.contrib.auth import login
 from django.core.exceptions import PermissionDenied
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
 from django.utils.decorators import method_decorator
 from django.views import View
-from django.views.decorators.http import require_POST
 from django.views.decorators.debug import sensitive_variables, sensitive_post_parameters
 
 from bookwyrm import emailing, forms, models
@@ -56,6 +56,10 @@ class Register(View):
         localname = form.data["localname"].strip()
         email = form.data["email"]
         password = form.data["password"]
+        try:
+            preferred_timezone = pytz.timezone(form.data.get("preferred_timezone"))
+        except pytz.exceptions.UnknownTimeZoneError:
+            preferred_timezone = pytz.utc
 
         # make sure the email isn't blocked as spam
         email_domain = email.split("@")[-1]
@@ -72,6 +76,7 @@ class Register(View):
             local=True,
             deactivation_reason="pending" if settings.require_confirm_email else None,
             is_active=not settings.require_confirm_email,
+            preferred_timezone=preferred_timezone,
         )
         if invite:
             invite.times_used += 1
@@ -92,8 +97,11 @@ class ConfirmEmailCode(View):
     def get(self, request, code):  # pylint: disable=unused-argument
         """you got the code! good work"""
         settings = models.SiteSettings.get()
-        if request.user.is_authenticated or not settings.require_confirm_email:
+        if request.user.is_authenticated:
             return redirect("/")
+
+        if not settings.require_confirm_email:
+            return redirect("login")
 
         # look up the user associated with this code
         try:
@@ -103,9 +111,7 @@ class ConfirmEmailCode(View):
                 request, "confirm_email/confirm_email.html", {"valid": False}
             )
         # update the user
-        user.is_active = True
-        user.deactivation_reason = None
-        user.save(broadcast=False, update_fields=["is_active", "deactivation_reason"])
+        user.reactivate()
         # direct the user to log in
         return redirect("login", confirmed="confirmed")
 
@@ -129,12 +135,22 @@ class ConfirmEmail(View):
         return ConfirmEmailCode().get(request, code)
 
 
-@require_POST
-def resend_link(request):
-    """resend confirmation link"""
-    email = request.POST.get("email")
-    user = get_object_or_404(models.User, email=email)
-    emailing.email_confirmation_email(user)
-    return TemplateResponse(
-        request, "confirm_email/confirm_email.html", {"valid": True}
-    )
+class ResendConfirmEmail(View):
+    """you probably didn't get the email because celery is slow but you can try this"""
+
+    def get(self, request):
+        """resend link landing page"""
+        return TemplateResponse(request, "confirm_email/resend.html")
+
+    def post(self, request):
+        """resend confirmation link"""
+        email = request.POST.get("email")
+        try:
+            user = models.User.objects.get(email=email)
+            emailing.email_confirmation_email(user)
+        except models.User.DoesNotExist:
+            pass
+
+        return TemplateResponse(
+            request, "confirm_email/confirm_email.html", {"valid": True}
+        )

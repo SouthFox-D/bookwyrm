@@ -8,7 +8,7 @@ from django.test import TestCase
 
 from bookwyrm import models
 from bookwyrm.importers import LibrarythingImporter
-from bookwyrm.importers.importer import handle_imported_book
+from bookwyrm.models.import_job import handle_imported_book
 
 
 def make_date(*args):
@@ -23,6 +23,7 @@ def make_date(*args):
 class LibrarythingImport(TestCase):
     """importing from librarything tsv"""
 
+    # pylint: disable=invalid-name
     def setUp(self):
         """use a test tsv"""
         self.importer = LibrarythingImporter()
@@ -36,6 +37,7 @@ class LibrarythingImport(TestCase):
             self.local_user = models.User.objects.create_user(
                 "mmai", "mmai@mmai.mmai", "password", local=True
             )
+        models.SiteSettings.objects.create()
         work = models.Work.objects.create(title="Test Work")
         self.book = models.Edition.objects.create(
             title="Example Edition",
@@ -93,7 +95,9 @@ class LibrarythingImport(TestCase):
 
     def test_handle_imported_book(self, *_):
         """librarything import added a book, this adds related connections"""
-        shelf = self.local_user.shelf_set.filter(identifier="read").first()
+        shelf = self.local_user.shelf_set.filter(
+            identifier=models.Shelf.READ_FINISHED
+        ).first()
         self.assertIsNone(shelf.books.first())
 
         import_job = self.importer.create_job(
@@ -117,7 +121,9 @@ class LibrarythingImport(TestCase):
     def test_handle_imported_book_already_shelved(self, *_):
         """librarything import added a book, this adds related connections"""
         with patch("bookwyrm.models.activitypub_mixin.broadcast_task.apply_async"):
-            shelf = self.local_user.shelf_set.filter(identifier="to-read").first()
+            shelf = self.local_user.shelf_set.filter(
+                identifier=models.Shelf.TO_READ
+            ).first()
             models.ShelfBook.objects.create(
                 shelf=shelf, user=self.local_user, book=self.book
             )
@@ -135,7 +141,9 @@ class LibrarythingImport(TestCase):
         shelf.refresh_from_db()
         self.assertEqual(shelf.books.first(), self.book)
         self.assertIsNone(
-            self.local_user.shelf_set.get(identifier="read").books.first()
+            self.local_user.shelf_set.get(
+                identifier=models.Shelf.READ_FINISHED
+            ).books.first()
         )
 
         readthrough = models.ReadThrough.objects.get(user=self.local_user)

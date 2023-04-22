@@ -47,10 +47,18 @@
                     {% trans "Privacy Policy" %}
                 </a>
             </li>
+            {% if site.show_impressum %}
+            <li>
+                {% url 'impressum' as path %}
+                <a href="{{ path }}" {% if request.path in path %}class="is-active"{% endif %}>
+                    {% trans "Impressum" %}
+                </a>
+            </li>
+            {% endif %}
         </ul>
     </nav>
 
-    <div class="column">
+    <div class="column is-clipped">
         {% block about_content %}{% endblock %}
     </div>
 </div>

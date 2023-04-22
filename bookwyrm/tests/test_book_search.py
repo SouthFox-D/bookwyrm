@@ -28,6 +28,12 @@ class BookSearch(TestCase):
             openlibrary_key="hello",
         )
 
+        self.third_edition = models.Edition.objects.create(
+            title="Edition with annoying ISBN",
+            parent_work=self.work,
+            isbn_10="022222222X",
+        )
+
     def test_search(self):
         """search for a book in the db"""
         # title/author
@@ -56,6 +62,12 @@ class BookSearch(TestCase):
         results = book_search.search_identifiers("hello")
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0], self.second_edition)
+
+    def test_search_identifiers_isbn_search(self):
+        """search by unique ID with slightly wonky ISBN"""
+        results = book_search.search_identifiers("22222222x")
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0], self.third_edition)
 
     def test_search_identifiers_return_first(self):
         """search by unique identifiers"""
@@ -102,17 +114,11 @@ class BookSearch(TestCase):
         class TestConnector(AbstractMinimalConnector):
             """nothing added here"""
 
-            def format_search_result(self, search_result):
-                return search_result
-
             def get_or_create_book(self, remote_id):
                 pass
 
-            def parse_search_data(self, data):
+            def parse_search_data(self, data, min_confidence):
                 return data
-
-            def format_isbn_search_result(self, search_result):
-                return search_result
 
             def parse_isbn_search_data(self, data):
                 return data

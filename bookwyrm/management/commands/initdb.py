@@ -8,54 +8,64 @@ from bookwyrm import models
 
 def init_groups():
     """permission levels"""
-    groups = ["admin", "moderator", "editor"]
+    groups = ["admin", "owner", "moderator", "editor"]
     for group in groups:
-        Group.objects.create(name=group)
+        Group.objects.get_or_create(name=group)
 
 
 def init_permissions():
     """permission types"""
     permissions = [
         {
+            "codename": "manage_registration",
+            "name": "allow or prevent user registration",
+            "groups": ["admin"],
+        },
+        {
+            "codename": "system_administration",
+            "name": "technical controls",
+            "groups": ["admin"],
+        },
+        {
             "codename": "edit_instance_settings",
             "name": "change the instance info",
-            "groups": ["admin"],
+            "groups": ["admin", "owner"],
         },
         {
             "codename": "set_user_group",
             "name": "change what group a user is in",
-            "groups": ["admin", "moderator"],
+            "groups": ["admin", "owner", "moderator"],
         },
         {
             "codename": "control_federation",
             "name": "control who to federate with",
-            "groups": ["admin", "moderator"],
+            "groups": ["admin", "owner", "moderator"],
         },
         {
             "codename": "create_invites",
             "name": "issue invitations to join",
-            "groups": ["admin", "moderator"],
+            "groups": ["admin", "owner", "moderator"],
         },
         {
             "codename": "moderate_user",
             "name": "deactivate or silence a user",
-            "groups": ["admin", "moderator"],
+            "groups": ["admin", "owner", "moderator"],
         },
         {
             "codename": "moderate_post",
             "name": "delete other users' posts",
-            "groups": ["admin", "moderator"],
+            "groups": ["admin", "owner", "moderator"],
         },
         {
             "codename": "edit_book",
             "name": "edit book info",
-            "groups": ["admin", "moderator", "editor"],
+            "groups": ["admin", "owner", "moderator", "editor"],
         },
     ]
 
     content_type = ContentType.objects.get_for_model(models.User)
     for permission in permissions:
-        permission_obj = Permission.objects.create(
+        permission_obj, _ = Permission.objects.get_or_create(
             codename=permission["codename"],
             name=permission["name"],
             content_type=content_type,
@@ -89,7 +99,7 @@ def init_connectors():
         covers_url="https://inventaire.io",
         search_url="https://inventaire.io/api/search?types=works&types=works&search=",
         isbn_search_url="https://inventaire.io/api/entities?action=by-uris&uris=isbn%3A",
-        priority=3,
+        priority=1,
     )
 
     models.Connector.objects.create(
@@ -101,26 +111,18 @@ def init_connectors():
         covers_url="https://covers.openlibrary.org",
         search_url="https://openlibrary.org/search?q=",
         isbn_search_url="https://openlibrary.org/api/books?jscmd=data&format=json&bibkeys=ISBN:",
-        priority=3,
+        priority=1,
     )
-
-
-def init_federated_servers():
-    """big no to nazis"""
-    built_in_blocks = ["gab.ai", "gab.com"]
-    for server in built_in_blocks:
-        models.FederatedServer.objects.create(
-            server_name=server,
-            status="blocked",
-        )
 
 
 def init_settings():
     """info about the instance"""
+    group_editor = Group.objects.filter(name="editor").first()
     models.SiteSettings.objects.create(
         support_link="https://www.patreon.com/bookwyrm",
         support_title="Patreon",
         install_mode=True,
+        default_user_auth_group=group_editor,
     )
 
 
@@ -163,7 +165,6 @@ class Command(BaseCommand):
             "group",
             "permission",
             "connector",
-            "federatedserver",
             "settings",
             "linkdomain",
         ]
@@ -176,8 +177,6 @@ class Command(BaseCommand):
             init_permissions()
         if not limit or limit == "connector":
             init_connectors()
-        if not limit or limit == "federatedserver":
-            init_federated_servers()
         if not limit or limit == "settings":
             init_settings()
         if not limit or limit == "linkdomain":
