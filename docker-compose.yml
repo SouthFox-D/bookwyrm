@@ -19,7 +19,7 @@ services:
     entrypoint: /bookwyrm-entrypoint.sh
     command: cron postgres
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - /opt/bookwyrm/pgdata:/var/lib/postgresql/data
       - backups:/backups
     networks:
       - main
@@ -38,7 +38,7 @@ services:
     networks:
       - main
     ports:
-      - "8000"
+      - "127.0.0.1:8233:8000"
   redis_activity:
     image: redis
     command: redis-server --requirepass ${REDIS_ACTIVITY_PASSWORD} --appendonly yes --port ${REDIS_ACTIVITY_PORT}
