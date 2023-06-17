@@ -71,11 +71,11 @@ class ActivitypubFieldMixin:
     def set_field_from_activity(
         self, instance, data, overwrite=True, allow_external_connections=True
     ):
-        """helper function for assinging a value to the field. Returns if changed"""
+        """helper function for assigning a value to the field. Returns if changed"""
         try:
             value = getattr(data, self.get_activitypub_field())
         except AttributeError:
-            # masssively hack-y workaround for boosts
+            # massively hack-y workaround for boosts
             if self.get_activitypub_field() != "attributedTo":
                 raise
             value = getattr(data, "actor")
@@ -221,7 +221,7 @@ PrivacyLevels = [
 
 
 class PrivacyField(ActivitypubFieldMixin, models.CharField):
-    """this maps to two differente activitypub fields"""
+    """this maps to two different activitypub fields"""
 
     public = "https://www.w3.org/ns/activitystreams#Public"
 
@@ -371,7 +371,7 @@ class TagField(ManyToManyField):
             tags.append(
                 activitypub.Link(
                     href=item.remote_id,
-                    name=getattr(item, item.name_field),
+                    name=f"@{getattr(item, item.name_field)}",
                     type=activity_type,
                 )
             )
@@ -379,7 +379,12 @@ class TagField(ManyToManyField):
 
     def field_from_activity(self, value, allow_external_connections=True):
         if not isinstance(value, list):
-            return None
+            # GoToSocial DMs and single-user mentions are
+            # sent as objects, not as an array of objects
+            if isinstance(value, dict):
+                value = [value]
+            else:
+                return None
         items = []
         for link_json in value:
             link = activitypub.Link(**link_json)
@@ -431,7 +436,7 @@ class ImageField(ActivitypubFieldMixin, models.ImageField):
     def set_field_from_activity(
         self, instance, data, save=True, overwrite=True, allow_external_connections=True
     ):
-        """helper function for assinging a value to the field"""
+        """helper function for assigning a value to the field"""
         value = getattr(data, self.get_activitypub_field())
         formatted = self.field_from_activity(
             value, allow_external_connections=allow_external_connections
