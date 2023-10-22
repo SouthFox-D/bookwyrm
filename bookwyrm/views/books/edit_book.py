@@ -32,6 +32,9 @@ class EditBook(View):
     def get(self, request, book_id):
         """info about a book"""
         book = get_edition(book_id)
+        # This doesn't update the sort title, just pre-populates it in the form
+        if book.sort_title in ["", None]:
+            book.sort_title = book.guess_sort_title()
         if not book.description:
             book.description = book.parent_work.description
         data = {"book": book, "form": forms.EditionForm(instance=book)}
@@ -40,6 +43,7 @@ class EditBook(View):
     def post(self, request, book_id):
         """edit a book cool"""
         book = get_object_or_404(models.Edition, id=book_id)
+
         form = forms.EditionForm(request.POST, request.FILES, instance=book)
 
         data = {"book": book, "form": form}
@@ -157,6 +161,7 @@ def add_authors(request, data):
     """helper for adding authors"""
     add_author = [author for author in request.POST.getlist("add_author") if author]
     if not add_author:
+        data["add_author"] = []
         return data
 
     data["add_author"] = add_author
