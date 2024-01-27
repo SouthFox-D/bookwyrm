@@ -104,6 +104,7 @@ services:
     build: dev-tools
     env_file: .env
     volumes:
+      - /app/dev-tools/
       - .:/app
 volumes:
   pgdata:
