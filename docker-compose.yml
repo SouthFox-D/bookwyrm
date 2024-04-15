@@ -94,6 +94,7 @@ services:
     env_file: .env
     volumes:
       - .:/app
+      - static_volume:/app/static
     networks:
       - main
     depends_on:
@@ -106,6 +107,8 @@ services:
     volumes:
       - /app/dev-tools/
       - .:/app
+    profiles:
+      - tools
 volumes:
   pgdata:
   backups:
