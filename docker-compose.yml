@@ -32,6 +32,7 @@ services:
       - .:/app
       - static_volume:/app/static
       - media_volume:/app/images
+      - exports_volume:/app/exports
     depends_on:
       - db
       - celery_worker
@@ -71,6 +72,7 @@ services:
       - .:/app
       - static_volume:/app/static
       - media_volume:/app/images
+      - exports_volume:/app/exports
     depends_on:
       - db
       - redis_broker
@@ -85,6 +87,7 @@ services:
       - .:/app
       - static_volume:/app/static
       - media_volume:/app/images
+      - exports_volume:/app/exports
     depends_on:
       - celery_worker
     restart: on-failure
@@ -114,6 +117,7 @@ volumes:
   backups:
   static_volume:
   media_volume:
+  exports_volume:
   redis_broker_data:
   redis_activity_data:
 networks:
